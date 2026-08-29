@@ -1,100 +1,87 @@
 # IoMT Intrusion Detection Simulator
 
-This is a simplified implementation based on the paper "An Intrusion
+A live, visual, rule-based simulation based on the paper "An Intrusion
 Detection System for Internet of Medical Things" (Thamilarasu et al.,
 IEEE Access 2020).
 
-As instructed, we are not training the paper's machine learning models
-(SVM, Decision Tree, Naive Bayes, KNN, Random Forest) or its polynomial
-regression model. Instead, we built a simulator that generates patient
-and network data, injects the attack types described in the paper, and
-detects them using rule-based / statistical logic instead of ML.
+As instructed, no machine learning is trained here. Detection is done
+with rule-based / threshold / signature checks only -- mirroring the
+paper's Sensor Agent, Cluster-Head Agent, and Detective Agent design.
+
+No pip installs are needed -- everything runs on Python's built-in
+`tkinter` library.
 
 ## Team
 
-- **Hira** -- Data generation (`data_generator.py`)
-- **Isha** -- Attack injection (`attack_injector.py`)
-- **Laiba** -- Detection logic and dashboard (`detector.py`, `dashboard.py`)
+- **Hira** -- Sensors and data generation (`sensors.py`)
+- **Isha** -- Attacker module (`attacker.py`)
+- **Laiba** -- Detection engine and GUI (`detection.py`, `gui_app.py`)
 
 ## Project structure
 
 ```
-config.py            Shared constants used by every module
-data_generator.py    Generates normal (attack-free) patient and network data
-attack_injector.py   Injects attacks and labels the data
-detector.py           Rule-based detection engine and accuracy report
-dashboard.py           Streamlit dashboard for visualizing results
-main.py               Runs the full pipeline end-to-end
-requirements.txt
-```
-
-## Setup
-
-```bash
-pip install -r requirements.txt
+models.py       Shared data models and constants (packet format, patient
+                profiles, physiological bounds) -- used by every module
+sensors.py      Simulates a patient's body sensors producing vitals
+attacker.py     Simulates an attacker tampering with sensor data
+detection.py    Rule-based detection engine (Cluster Head + Detective Agent)
+gui_app.py      The live Tkinter simulation window
+main.py         Entry point -- run this to launch the simulation
 ```
 
 ## Running the project
 
-Run everything at once:
 ```bash
 python main.py
 ```
-This generates `normal_data.csv`, `labeled_data.csv`, and
-`detection_results.csv`, and prints an accuracy summary in the terminal.
 
-Then view the dashboard:
-```bash
-streamlit run dashboard.py
-```
+A window opens showing a patient with 4 sensors (ECG, TEMP, SPO2,
+RESP), a Cluster Head, a Base Station, and an Attacker. Click **Start**
+to begin the simulation, then use the Attacker Module panel to launch
+an attack on any sensor and watch it get detected live.
 
-Each module can also be run and tested on its own:
-```bash
-python data_generator.py     # produces normal_data.csv
-python attack_injector.py    # produces labeled_data.csv (needs normal_data.csv)
-python detector.py           # produces detection_results.csv (needs labeled_data.csv)
-```
+## Terminology (what each part means)
 
-Note: `config.py` sets a fixed random seed, so running `data_generator.py`
-on any machine produces identical output. This means each person can
-generate the earlier stage's file on their own machine instead of
-waiting on someone else to send it.
+- **ECG / TEMP / SPO2 / RESP** -- standard patient vital signs: heart
+  rate, body temperature, blood-oxygen saturation, and breathing rate.
+- **Sensor** -- a simulated wearable device producing one vital's
+  readings for the patient.
+- **Cluster Head** -- collects data from all sensors and runs a fast,
+  local statistical check (rolling mean/standard deviation) on each
+  reading.
+- **Attacker** -- sits between a chosen sensor and the Cluster Head and
+  can launch three attack types from the paper's attack model:
+  - **Injection** -- fabricates a physiologically impossible reading
+    (data fabrication/falsification)
+  - **Replay** -- re-transmits an old, captured packet repeatedly
+  - **Blackhole** -- silently drops packets (denial-of-service)
+- **Detective Agent** -- performs deeper rule-based checks: physiological
+  bound violations, duplicate-timestamp (replay) detection, and
+  idle-time (DoS) detection. This name and role come directly from the
+  paper (Section IV).
+- **Base Station** -- the final destination that tallies how many
+  readings were benign, suspicious, or malicious. The paper refers to
+  this as the hospital server/cloud that the Cluster Head forwards data
+  to; "Base Station" is our label for it in the visualization.
+- **Benign / Suspicious / Malicious** -- the three possible verdicts a
+  reading can get: benign (normal), suspicious (a statistical outlier,
+  not confirmed), or malicious (confirmed attack).
 
-## What each part does
+## Detection logic (all rule-based, no ML)
 
-**Data generation (Hira)**
-Simulates a WBAN cluster of 5 sensors and 1 cluster head. Produces heart
-rate readings (sensors only) and network traffic features (packet rate,
-packet size) for every device, once per second, over a 10-minute window.
-All values are normal/attack-free.
-
-**Attack injection (Isha)**
-Injects five attack types from the paper's attack model (Table 3), each
-on a specific device during a specific time window:
-- DoS -- Sender Radio Exhaustion (the sensor floods its own traffic)
-- DoS -- Receiver Radio Exhaustion (decoy packets flood the cluster head)
-- Sink Hole (traffic gets redirected, so packet rate collapses)
-- Data Fabrication (a physiologically impossible heart-rate value)
-- Data Falsification (a slow, subtle drift in a real reading, harder to
-  detect, labeled "suspicious" rather than "malicious")
-
-Every row is labeled with the ground truth (`normal` / `suspicious` /
-`malicious`) and an `attack_type`.
-
-**Detection and dashboard (Laiba)**
-Two independent rule-based checks, no ML training involved:
-1. A rolling, outlier-resistant (median/MAD-based) z-score on packet
-   rate, which catches both DoS floods and sinkhole drops.
-2. Physiological bounds plus a rolling z-score on heart rate, which
-   catches both fabrication and falsification.
-
-The two checks are combined into one final verdict per row and compared
-against the ground truth to produce an accuracy summary. `dashboard.py`
-shows this visually in the browser.
+1. **Cluster Head check** -- flags a reading as a local outlier if it's
+   more than 3 standard deviations from that sensor's own recent
+   rolling average.
+2. **Detective Agent checks**, in priority order:
+   - Physiological bound violation (or a forged packet) -> **malicious**
+   - Duplicate timestamp (replay signature) -> **malicious**
+   - Local statistical outlier only -> **suspicious**
+3. **DoS/blackhole check** -- runs every tick; if a sensor has sent
+   nothing for 4+ ticks, it's flagged as a suspected DoS/blackhole attack.
 
 ## Notes on tuning
 
-If the attack durations or intensities in `attack_injector.py` are
-changed, the detection thresholds in `detector.py`
-(`ROLLING_WINDOW_SEC`, `Z_THRESHOLD_MALICIOUS`, `Z_THRESHOLD_SUSPICIOUS`)
-may need to be adjusted to keep accuracy reasonable.
+Thresholds live at the top of `detection.py`: `Z_THRESHOLD` (Cluster
+Head outlier sensitivity) and `DOS_IDLE_TICKS` (how long a sensor can
+go silent before a DoS alert fires). Physiological bounds and patient
+health profiles live in `models.py`.

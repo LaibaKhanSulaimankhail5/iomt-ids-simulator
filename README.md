@@ -4,12 +4,10 @@ A live, visual, rule-based simulation based on the paper "An Intrusion
 Detection System for Internet of Medical Things" (Thamilarasu et al.,
 IEEE Access 2020).
 
-As instructed, no machine learning is trained here. Detection is done
+Detection is done
 with rule-based / threshold / signature checks only -- mirroring the
 paper's Sensor Agent, Cluster-Head Agent, and Detective Agent design.
 
-No pip installs are needed -- everything runs on Python's built-in
-`tkinter` library.
 
 ## Team
 
@@ -67,7 +65,7 @@ an attack on any sensor and watch it get detected live.
   reading can get: benign (normal), suspicious (a statistical outlier,
   not confirmed), or malicious (confirmed attack).
 
-## Detection logic (all rule-based, no ML)
+## Detection logic (all rule-based)
 
 1. **Cluster Head check** -- flags a reading as a local outlier if it's
    more than 3 standard deviations from that sensor's own recent
